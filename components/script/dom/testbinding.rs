@@ -8,7 +8,7 @@ use std::borrow::ToOwned;
 use std::ptr::{self, NonNull};
 use std::rc::Rc;
 use std::time::Duration;
-
+use js::conversions::ToJSValConvertible;
 use dom_struct::dom_struct;
 use js::jsapi::{Heap, JSObject, JS_NewPlainObject};
 use js::jsval::JSVal;
@@ -969,20 +969,14 @@ impl TestBindingMethods<crate::DomTypeHolder> for TestBinding {
         Record::new()
     }
 
-    #[allow(crown::unrooted_must_root, unsafe_code)]
-    fn ReturnResolvedPromise(&self, cx: SafeJSContext, _: HandleValue) -> Fallible<Rc<Promise>> {
-        unsafe {
-            let convertible = DOMString::new();
-            Promise::new_resolved(&self.global(), cx, convertible)
-        }
+    #[allow(crown::unrooted_must_root)]
+    fn ReturnResolvedPromise(&self, cx: SafeJSContext, v: HandleValue) -> Fallible<Rc<Promise>> {
+        Promise::new_resolved(&self.global(), cx, v)
     }
 
-    #[allow(crown::unrooted_must_root, unsafe_code)]
-    fn ReturnRejectedPromise(&self, cx: SafeJSContext, _: HandleValue) -> Fallible<Rc<Promise>> {
-        unsafe {
-            let convertible = DOMString::new();
-            Promise::new_rejected(&self.global(), cx, convertible)
-        }
+    #[allow(crown::unrooted_must_root)]
+    fn ReturnRejectedPromise(&self, cx: SafeJSContext, v: HandleValue) -> Fallible<Rc<Promise>> {
+        Promise::new_rejected(&self.global(), cx, v)
     }
 
     fn PromiseResolveNative(&self, cx: SafeJSContext, p: &Promise, v: HandleValue) {

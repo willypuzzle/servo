@@ -148,7 +148,7 @@ impl Promise {
     }
 
     #[allow(crown::unrooted_must_root, unsafe_code)]
-    pub unsafe fn new_resolved(
+    pub fn new_resolved(
         global: &GlobalScope,
         cx: SafeJSContext,
         value: impl ToJSValConvertible,
