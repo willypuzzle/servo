@@ -969,14 +969,20 @@ impl TestBindingMethods<crate::DomTypeHolder> for TestBinding {
         Record::new()
     }
 
-    #[allow(crown::unrooted_must_root)]
-    fn ReturnResolvedPromise(&self, cx: SafeJSContext, v: HandleValue) -> Fallible<Rc<Promise>> {
-        Promise::new_resolved(&self.global(), cx, v)
+    #[allow(crown::unrooted_must_root, unsafe_code)]
+    fn ReturnResolvedPromise(&self, cx: SafeJSContext, _: HandleValue) -> Fallible<Rc<Promise>> {
+        unsafe {
+            let convertible = DOMString::new();
+            Promise::new_resolved(&self.global(), cx, convertible)
+        }
     }
 
-    #[allow(crown::unrooted_must_root)]
-    fn ReturnRejectedPromise(&self, cx: SafeJSContext, v: HandleValue) -> Fallible<Rc<Promise>> {
-        Promise::new_rejected(&self.global(), cx, v)
+    #[allow(crown::unrooted_must_root, unsafe_code)]
+    fn ReturnRejectedPromise(&self, cx: SafeJSContext, _: HandleValue) -> Fallible<Rc<Promise>> {
+        unsafe {
+            let convertible = DOMString::new();
+            Promise::new_rejected(&self.global(), cx, convertible)
+        }
     }
 
     fn PromiseResolveNative(&self, cx: SafeJSContext, p: &Promise, v: HandleValue) {
