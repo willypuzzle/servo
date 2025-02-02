@@ -13,7 +13,7 @@ use js::jsapi::{JSAutoRealm, JSObject};
 use js::jsval::UndefinedValue;
 use js::rust::{CustomAutoRooterGuard, HandleObject};
 use js::typedarray::{ArrayBuffer, ArrayBufferView, CreateWith};
-use net_traits::request::{Referrer, RequestBuilder, RequestMode};
+use net_traits::request::{CacheMode, CredentialsMode, RedirectMode, Referrer, RequestBuilder, RequestMode, ServiceWorkersMode};
 use net_traits::{
     CoreResourceMsg, FetchChannels, MessageData, WebSocketDomAction, WebSocketNetworkEvent,
 };
@@ -257,7 +257,11 @@ impl WebSocketMethods<crate::DomTypeHolder> for WebSocket {
 
         let request = RequestBuilder::new(global.webview_id(), url_record, Referrer::NoReferrer)
             .origin(global.origin().immutable().clone())
-            .mode(RequestMode::WebSocket { protocols });
+            .mode(RequestMode::WebSocket { protocols })
+            .service_workers_mode(ServiceWorkersMode::None)
+            .credentials_mode(CredentialsMode::Include)
+            .cache_mode(CacheMode::NoStore)
+            .redirect_mode(RedirectMode::Error);
 
         let channels = FetchChannels::WebSocket {
             event_sender: resource_event_sender,
