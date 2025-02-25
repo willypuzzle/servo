@@ -12,6 +12,7 @@ pub fn dom_struct(args: TokenStream, input: TokenStream) -> TokenStream {
         panic!("#[dom_struct] takes no arguments");
     }
     let attributes = quote! {
+        #[must_root:must_root]
         #[derive(deny_public_fields::DenyPublicFields, domobject_derive::DomObject, JSTraceable, MallocSizeOf)]
         #[cfg_attr(crown, crown::unrooted_must_root_lint::must_root)]
         #[repr(C)]

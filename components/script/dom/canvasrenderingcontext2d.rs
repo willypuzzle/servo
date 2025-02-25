@@ -12,7 +12,7 @@ use profile_traits::ipc;
 use servo_url::ServoUrl;
 
 use crate::canvas_context::CanvasContext;
-use crate::canvas_state::CanvasState;
+use crate::canvas_state::{CanvasState, RemoteCanvasState};
 use crate::dom::bindings::codegen::Bindings::CanvasRenderingContext2DBinding::{
     CanvasDirection, CanvasFillRule, CanvasImageSource, CanvasLineCap, CanvasLineJoin,
     CanvasRenderingContext2DMethods, CanvasTextAlign, CanvasTextBaseline,
@@ -34,12 +34,26 @@ use crate::dom::imagedata::ImageData;
 use crate::dom::textmetrics::TextMetrics;
 use crate::script_runtime::CanGc;
 
+#[derive(JSTraceable, MallocSizeOf)]
+struct DroppableFields {
+    ipc_renderer: IpcSender<CanvasMsg>,
+    canvas_id: CanvasId,
+}
+
+impl Drop for DroppableFields {
+    fn drop(&mut self) {
+        if let Err(err) = self.ipc_renderer.send(CanvasMsg::Close(self.canvas_id)) {
+            warn!("Could not close canvas: {}", err)
+        }
+    }
+}
 // https://html.spec.whatwg.org/multipage/#canvasrenderingcontext2d
 #[dom_struct]
 pub(crate) struct CanvasRenderingContext2D {
     reflector_: Reflector,
     canvas: HTMLCanvasElementOrOffscreenCanvas,
     canvas_state: CanvasState,
+    droppable_fields: DroppableFields,
 }
 
 impl CanvasRenderingContext2D {
@@ -48,13 +62,22 @@ impl CanvasRenderingContext2D {
         canvas: HTMLCanvasElementOrOffscreenCanvas,
         size: Size2D<u32>,
     ) -> CanvasRenderingContext2D {
+        let remote_canvas_state =
+            RemoteCanvasState::new(global, Size2D::new(size.width as u64, size.height as u64));
+        let ipc_renderer = remote_canvas_state.get_ipc_renderer().clone();
+        let canvas_id = remote_canvas_state.get_canvas_id();
         CanvasRenderingContext2D {
             reflector_: Reflector::new(),
             canvas,
             canvas_state: CanvasState::new(
                 global,
                 Size2D::new(size.width as u64, size.height as u64),
+                remote_canvas_state,
             ),
+            droppable_fields: DroppableFields {
+                ipc_renderer,
+                canvas_id,
+            },
         }
     }
 
@@ -674,14 +697,3 @@ impl CanvasRenderingContext2DMethods<crate::DomTypeHolder> for CanvasRenderingCo
     }
 }
 
-impl Drop for CanvasRenderingContext2D {
-    fn drop(&mut self) {
-        if let Err(err) = self
-            .canvas_state
-            .get_ipc_renderer()
-            .send(CanvasMsg::Close(self.canvas_state.get_canvas_id()))
-        {
-            warn!("Could not close canvas: {}", err)
-        }
-    }
-}
