@@ -62,13 +62,10 @@ impl ActiveBufferMapping {
     }
 }
 
-#[dom_struct]
-pub(crate) struct GPUBuffer {
-    reflector_: Reflector,
-    #[ignore_malloc_size_of = "defined in webgpu"]
+#[derive(MallocSizeOf)]
+struct DroppableField {
     #[no_trace]
     channel: WebGPU,
-    label: DomRefCell<USVString>,
     #[no_trace]
     buffer: WebGPUBuffer,
     device: Dom<GPUDevice>,
@@ -83,111 +80,7 @@ pub(crate) struct GPUBuffer {
     mapping: DomRefCell<Option<ActiveBufferMapping>>,
 }
 
-impl GPUBuffer {
-    fn new_inherited(
-        channel: WebGPU,
-        buffer: WebGPUBuffer,
-        device: &GPUDevice,
-        size: GPUSize64,
-        usage: GPUFlagsConstant,
-        mapping: Option<ActiveBufferMapping>,
-        label: USVString,
-    ) -> Self {
-        Self {
-            reflector_: Reflector::new(),
-            channel,
-            label: DomRefCell::new(label),
-            device: Dom::from_ref(device),
-            buffer,
-            pending_map: DomRefCell::new(None),
-            size,
-            usage,
-            mapping: DomRefCell::new(mapping),
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
-        global: &GlobalScope,
-        channel: WebGPU,
-        buffer: WebGPUBuffer,
-        device: &GPUDevice,
-        size: GPUSize64,
-        usage: GPUFlagsConstant,
-        mapping: Option<ActiveBufferMapping>,
-        label: USVString,
-        can_gc: CanGc,
-    ) -> DomRoot<Self> {
-        reflect_dom_object(
-            Box::new(GPUBuffer::new_inherited(
-                channel, buffer, device, size, usage, mapping, label,
-            )),
-            global,
-            can_gc,
-        )
-    }
-}
-
-impl GPUBuffer {
-    pub(crate) fn id(&self) -> WebGPUBuffer {
-        self.buffer
-    }
-
-    /// <https://gpuweb.github.io/gpuweb/#dom-gpudevice-createbuffer>
-    pub(crate) fn create(
-        device: &GPUDevice,
-        descriptor: &GPUBufferDescriptor,
-        can_gc: CanGc,
-    ) -> Fallible<DomRoot<GPUBuffer>> {
-        let desc = wgt::BufferDescriptor {
-            label: (&descriptor.parent).convert(),
-            size: descriptor.size as wgt::BufferAddress,
-            usage: wgt::BufferUsages::from_bits_retain(descriptor.usage),
-            mapped_at_creation: descriptor.mappedAtCreation,
-        };
-        let id = device.global().wgpu_id_hub().create_buffer_id();
-
-        device
-            .channel()
-            .0
-            .send(WebGPURequest::CreateBuffer {
-                device_id: device.id().0,
-                buffer_id: id,
-                descriptor: desc,
-            })
-            .expect("Failed to create WebGPU buffer");
-
-        let buffer = WebGPUBuffer(id);
-        let mapping = if descriptor.mappedAtCreation {
-            Some(ActiveBufferMapping::new(
-                GPUMapModeConstants::WRITE,
-                0..descriptor.size,
-            )?)
-        } else {
-            None
-        };
-
-        Ok(GPUBuffer::new(
-            &device.global(),
-            device.channel().clone(),
-            buffer,
-            device,
-            descriptor.size,
-            descriptor.usage,
-            mapping,
-            descriptor.parent.label.clone(),
-            can_gc,
-        ))
-    }
-}
-
-impl Drop for GPUBuffer {
-    fn drop(&mut self) {
-        self.Destroy()
-    }
-}
-
-impl GPUBufferMethods<crate::DomTypeHolder> for GPUBuffer {
+impl DroppableField {
     #[allow(unsafe_code)]
     /// <https://gpuweb.github.io/gpuweb/#dom-gpubuffer-unmap>
     fn Unmap(&self) {
@@ -207,7 +100,7 @@ impl GPUBufferMethods<crate::DomTypeHolder> for GPUBuffer {
         mapping.data.clear_views();
         // Step 5&7
         if let Err(e) = self.channel.0.send(WebGPURequest::UnmapBuffer {
-            buffer_id: self.id().0,
+            buffer_id: self.buffer.0,
             mapping: if mapping.mode >= GPUMapModeConstants::WRITE {
                 Some(Mapping {
                     data: IpcSharedMemory::from_bytes(mapping.data.data()),
@@ -360,7 +253,74 @@ impl GPUBufferMethods<crate::DomTypeHolder> for GPUBuffer {
     }
 }
 
+impl Drop for DroppableField {
+    fn drop(&mut self) {
+        self.Destroy()
+    }
+}
+
+#[dom_struct]
+pub struct GPUBuffer {
+    reflector_: Reflector,
+    #[ignore_malloc_size_of = "defined in webgpu"]
+    label: DomRefCell<Option<USVString>>,
+    size: GPUSize64,
+    droppable_field: DroppableField,
+}
+
 impl GPUBuffer {
+    fn new_inherited(
+        channel: WebGPU,
+        buffer: WebGPUBuffer,
+        device: &GPUDevice,
+        size: GPUSize64,
+        usage: GPUFlagsConstant,
+        mapping: Option<ActiveBufferMapping>,
+        label: Option<USVString>,
+    ) -> Self {
+        Self {
+            reflector_: Reflector::new(),
+            label: DomRefCell::new(label),
+            size,
+            droppable_field: DroppableField {
+                channel,
+                usage,
+                pending_map: DomRefCell::new(None),
+                buffer,
+                device: Dom::from_ref(device),
+                mapping: DomRefCell::new(mapping),
+                size,
+            },
+        }
+    }
+
+    #[allow(unsafe_code, clippy::too_many_arguments)]
+    pub(crate) fn new(
+        global: &GlobalScope,
+        channel: WebGPU,
+        buffer: WebGPUBuffer,
+        device: &GPUDevice,
+        size: GPUSize64,
+        usage: GPUFlagsConstant,
+        mapping: Option<ActiveBufferMapping>,
+        label: USVString,
+        can_gc: CanGc
+    ) -> DomRoot<Self> {
+        reflect_dom_object(
+            Box::new(GPUBuffer::new_inherited(
+                channel,
+                buffer,
+                device,
+                size,
+                usage,
+                mapping,
+                label,
+            )),
+            global,
+            can_gc,
+        )
+    }
+
     fn map_failure(&self, p: &Rc<Promise>, can_gc: CanGc) {
         let mut pending_map = self.pending_map.borrow_mut();
         // Step 1
@@ -416,6 +376,59 @@ impl GPUBuffer {
                 p.resolve_native(&(), can_gc);
             },
         }
+    }
+}
+
+impl GPUBuffer {
+    pub(crate) fn id(&self) -> WebGPUBuffer {
+        self.droppable_field.buffer
+    }
+
+    /// <https://gpuweb.github.io/gpuweb/#dom-gpudevice-createbuffer>
+    pub(crate) fn create(
+        device: &GPUDevice,
+        descriptor: &GPUBufferDescriptor,
+        can_gc: CanGc,
+    ) -> Fallible<DomRoot<GPUBuffer>> {
+        let desc = wgt::BufferDescriptor {
+            label: (&descriptor.parent).convert(),
+            size: descriptor.size as wgt::BufferAddress,
+            usage: wgt::BufferUsages::from_bits_retain(descriptor.usage),
+            mapped_at_creation: descriptor.mappedAtCreation,
+        };
+        let id = device.global().wgpu_id_hub().create_buffer_id();
+
+        device
+            .channel()
+            .0
+            .send(WebGPURequest::CreateBuffer {
+                device_id: device.id().0,
+                buffer_id: id,
+                descriptor: desc,
+            })
+            .expect("Failed to create WebGPU buffer");
+
+        let buffer = WebGPUBuffer(id);
+        let mapping = if descriptor.mappedAtCreation {
+            Some(ActiveBufferMapping::new(
+                GPUMapModeConstants::WRITE,
+                0..descriptor.size,
+            )?)
+        } else {
+            None
+        };
+
+        Ok(GPUBuffer::new(
+            &device.global(),
+            device.channel().clone(),
+            buffer,
+            device,
+            descriptor.size,
+            descriptor.usage,
+            mapping,
+            descriptor.parent.label.clone(),
+            can_gc,
+        ))
     }
 }
 
