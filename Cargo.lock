@@ -10593,6 +10593,7 @@ version = "0.0.1"
 dependencies = [
  "arrayvec",
  "base",
+ "malloc_size_of_derive",
  "pixels",
  "serde",
  "servo_malloc_size_of",
